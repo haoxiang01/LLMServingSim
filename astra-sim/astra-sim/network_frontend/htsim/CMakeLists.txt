@@ -29,17 +29,11 @@ file(GLOB srcs_htsim
 
 set (HTSIM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../extern/network_backend/csg-htsim/sim)
 
-set(srcs_htsim_extern   ${HTSIM_DIR}/datacenter/connection_matrix.cpp
-                        ${HTSIM_DIR}/datacenter/fat_tree_switch.cpp
-                        ${HTSIM_DIR}/datacenter/fat_tree_topology.cpp
-                        ${HTSIM_DIR}/datacenter/firstfit.cpp
-)
-
 file(GLOB srcs_htsim_proto
         ${CMAKE_CURRENT_SOURCE_DIR}/proto/*.cc
 )
 
-add_executable(AstraSim_HTSim ${srcs_htsim} ${srcs_common} ${srcs_htsim_extern} ${srcs_htsim_proto})
+add_executable(AstraSim_HTSim ${srcs_htsim} ${srcs_common} ${srcs_htsim_proto})
 target_sources(AstraSim_HTSim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/HTSimMain.cc)
 
 # Link libraries
@@ -58,7 +52,6 @@ target_include_directories(AstraSim_HTSim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..
 target_include_directories(AstraSim_HTSim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../../extern/)
 target_include_directories(AstraSim_HTSim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../../extern/helper)
 target_include_directories(AstraSim_HTSim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../../extern/network_backend/csg-htsim/sim/)
-target_include_directories(AstraSim_HTSim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../../extern/network_backend/csg-htsim/sim/datacenter/)
 
 # Properties
 set_target_properties(AstraSim_HTSim PROPERTIES COMPILE_WARNING_AS_ERROR OFF)

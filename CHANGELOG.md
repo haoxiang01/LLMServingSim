@@ -10,8 +10,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) co
 - `--network-backend htsim`: packet-level simulation of the configured links
   with csg-htsim, either one TCP flow per message or packets at full link
   bandwidth without congestion control (cluster config `htsim.transport`).
-  Build it with `./scripts/compile.sh --htsim`, which patches the `csg-htsim`
-  submodule's working tree. See
+  Build it with `./scripts/compile.sh --htsim`. See
   [network backends](https://llmservingsim.ai/docs/simulator/network-backends)
   for the link model, settings and limitations.
 

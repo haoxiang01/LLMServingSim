@@ -87,10 +87,12 @@ void TcpSrc::set_app_limit(int pktps) {
     send_packets();
 }
 
+simtime_picosec TcpSrc::_min_rto = timeFromSec(0.25);
+
 void 
 TcpSrc::startflow() {
     _unacked = _cwnd;
-    _established = false;
+    _established = _astrasim_preestablished;
 
     send_packets();
 }
@@ -141,6 +143,12 @@ TcpSrc::receivePacket(Packet& pkt)
     ts = p->ts();
     p->free();
 
+    if (_astrasim_notified) {
+        // AstraSim: a completed flow sends nothing more, so its packets in
+        // the network are a bounded set and the flow can be freed.
+        return;
+    }
+
     if (seqno < _last_acked) {
         //cout << "O seqno" << seqno << " last acked "<< _last_acked;
         return;
@@ -180,11 +188,14 @@ TcpSrc::receivePacket(Packet& pkt)
     }
     //  cout << "Base "<<timeAsMs(_base_rtt)<< " RTT " << timeAsMs(_rtt)<< " Queued " << queued_packets << endl;
 
-    if (_rto<timeFromSec(0.25))
-        _rto = timeFromSec(.25);
+    if (_rto<_min_rto)
+        _rto = _min_rto;
 
-    if (seqno >= _flow_size){
-        cout << "Flow " << nodename() << " finished at " << timeAsMs(eventlist().now()) << endl;        
+    if (seqno >= _flow_size && !_astrasim_notified){
+        // AstraSim entry point
+        _astrasim_notified = true;
+        if (astrasim_flow_finish_send_cb)
+            astrasim_flow_finish_send_cb(_flow.flow_id());
     }
   
     if (seqno > _last_acked) { // a brand new ack
@@ -570,6 +581,11 @@ void TcpSrc::rtx_timer_hook(simtime_picosec now, simtime_picosec period) {
 }
 
 void TcpSrc::doNextEvent() {
+    if (_astrasim_notified) {
+        // AstraSim: no retransmission once every byte has been acknowledged.
+        _rtx_timeout_pending = false;
+        return;
+    }
     if(_rtx_timeout_pending) {
         _rtx_timeout_pending = false;
 
@@ -681,6 +697,14 @@ TcpSink::receivePacket(Packet& pkt) {
             }
         }
     }
+
+    if (_cumulative_ack >= _src->_flow_size && !_astrasim_notified) {
+        // AstraSim entry point
+        _astrasim_notified = true;
+        if (astrasim_flow_finish_recv_cb)
+            astrasim_flow_finish_recv_cb(_src->getFlowId());
+    }
+
     send_ack(ts,marked);
 }
 

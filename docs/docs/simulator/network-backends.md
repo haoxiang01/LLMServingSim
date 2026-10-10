@@ -35,13 +35,11 @@ Inside the simulator container:
 ```
 
 This builds the analytical backend as usual, then
-`astra-sim/build/astra_htsim/build.sh`, which applies
-`build/astra_htsim/htsim_astrasim.patch` to the `csg-htsim` submodule's working
-tree and produces `astra-sim/build/astra_htsim/build/bin/AstraSim_HTSim`.
-The patched submodule therefore shows as modified in `git status`; that is
-expected. If the build reports that `csg-htsim` has other local changes,
-restore it with `git -C astra-sim/extern/network_backend/csg-htsim checkout -- sim`
-and rebuild.
+`astra-sim/build/astra_htsim/build.sh`, which produces
+`astra-sim/build/astra_htsim/build/bin/AstraSim_HTSim`. The committed
+`csg-htsim` already carries `build/astra_htsim/htsim_astrasim.patch`; the build
+checks that and refuses a tree with other local changes. Restore one with
+`git checkout -- astra-sim/extern/network_backend/csg-htsim` and rebuild.
 
 ### Run
 
@@ -99,7 +97,16 @@ With either transport, packets are fixed-size: a message occupies
 `ceil(size / mtu)` full packets. Serialization time is computed per packet to
 the nearest picosecond, so link bandwidths of any magnitude are honoured.
 
-RAW_RESULTS
+Across the 70 `serving/validate.sh` scenarios, `raw` reproduces the
+analytical total clock exactly on 50 and within 0.6% on all but one, which
+shows the two backends describe the same links. The exception, `moe_dp_pp`
+(−5.2%), moves by as much under the analytical backend when its link latency
+changes by 1%: data-parallel round pairing makes such scenarios
+non-monotonic in communication cost. With `tcp` defaults, most scenarios
+with tensor- or expert-parallel collectives take longer than analytical, by
+up to 32%, the cost of slow start and acknowledgements; pipeline-only
+scenarios stay within 2%, and scenarios without cross-NPU traffic are
+identical.
 
 ### Settings
 

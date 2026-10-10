@@ -28,8 +28,8 @@ cd ${REPO_ROOT}/astra-sim
 bash ./build/astra_analytical/build.sh
 )
 
-# Compile ASTRA-sim with HTSim backend model. The build patches the csg-htsim
-# submodule's working tree (build/astra_htsim/htsim_astrasim.patch).
+# Compile ASTRA-sim with HTSim backend model. The committed csg-htsim already
+# carries build/astra_htsim/htsim_astrasim.patch; the build verifies it.
 if [[ ${BUILD_HTSIM} == true ]]; then
 (
 cd ${REPO_ROOT}/astra-sim

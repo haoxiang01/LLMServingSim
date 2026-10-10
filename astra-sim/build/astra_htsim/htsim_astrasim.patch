@@ -1,80 +1,136 @@
+diff --git a/sim/eventlist.h b/sim/eventlist.h
+index e3950f7..27f77bb 100755
+--- a/sim/eventlist.h
++++ b/sim/eventlist.h
+@@ -41,6 +41,13 @@ public:
+     static inline simtime_picosec now() {return EventList::_lasteventtime;}
+     static Handle nullHandle() {return _pendingsources.end();}
+ 
++    // AstraSim: inspect the pending events without running them, so a
++    // frontend can advance the simulation one timestamp at a time.
++    static bool hasPendingEvents() {return !_pending_triggers.empty() || !_pendingsources.empty();}
++    static simtime_picosec nextEventTime() {
++        return _pending_triggers.empty() ? _pendingsources.begin()->first : _lasteventtime;
++    }
++
+ 
+     static EventList& getTheEventList();
+     EventList(const EventList&)      = delete;  // disable Copy Constructor
 diff --git a/sim/tcp.cpp b/sim/tcp.cpp
-index 45b54d3..664561b 100755
+index 45b54d3..4d66842 100755
 --- a/sim/tcp.cpp
 +++ b/sim/tcp.cpp
-@@ -185,6 +185,15 @@ TcpSrc::receivePacket(Packet& pkt)
+@@ -87,10 +87,12 @@ void TcpSrc::set_app_limit(int pktps) {
+     send_packets();
+ }
  
-     if (seqno >= _flow_size){
-         cout << "Flow " << nodename() << " finished at " << timeAsMs(eventlist().now()) << endl;        
++simtime_picosec TcpSrc::_min_rto = timeFromSec(0.25);
++
+ void 
+ TcpSrc::startflow() {
+     _unacked = _cwnd;
+-    _established = false;
++    _established = _astrasim_preestablished;
+ 
+     send_packets();
+ }
+@@ -141,6 +143,12 @@ TcpSrc::receivePacket(Packet& pkt)
+     ts = p->ts();
+     p->free();
+ 
++    if (_astrasim_notified) {
++        // AstraSim: a completed flow sends nothing more, so its packets in
++        // the network are a bounded set and the flow can be freed.
++        return;
++    }
++
+     if (seqno < _last_acked) {
+         //cout << "O seqno" << seqno << " last acked "<< _last_acked;
+         return;
+@@ -180,11 +188,14 @@ TcpSrc::receivePacket(Packet& pkt)
+     }
+     //  cout << "Base "<<timeAsMs(_base_rtt)<< " RTT " << timeAsMs(_rtt)<< " Queued " << queued_packets << endl;
+ 
+-    if (_rto<timeFromSec(0.25))
+-        _rto = timeFromSec(.25);
++    if (_rto<_min_rto)
++        _rto = _min_rto;
+ 
+-    if (seqno >= _flow_size){
+-        cout << "Flow " << nodename() << " finished at " << timeAsMs(eventlist().now()) << endl;        
++    if (seqno >= _flow_size && !_astrasim_notified){
 +        // AstraSim entry point
-+        // Use IDs memorized at point of adding the flow, as well as unique src tag for the transition
-+        if (astrasim_flow_finish_send_cb) {
-+            int tag = _flow.flow_id();
-+            int src_id = _debug_srcid;
-+            int dst_id = _debug_dstid;
-+            std::cout << "Finish sending flow " << tag << " from " << src_id << " to " << dst_id << std::endl;
-+            astrasim_flow_finish_send_cb(src_id, dst_id, _flow_size, tag);
-+        }
++        _astrasim_notified = true;
++        if (astrasim_flow_finish_send_cb)
++            astrasim_flow_finish_send_cb(_flow.flow_id());
      }
    
      if (seqno > _last_acked) { // a brand new ack
-@@ -681,6 +690,17 @@ TcpSink::receivePacket(Packet& pkt) {
+@@ -570,6 +581,11 @@ void TcpSrc::rtx_timer_hook(simtime_picosec now, simtime_picosec period) {
+ }
+ 
+ void TcpSrc::doNextEvent() {
++    if (_astrasim_notified) {
++        // AstraSim: no retransmission once every byte has been acknowledged.
++        _rtx_timeout_pending = false;
++        return;
++    }
+     if(_rtx_timeout_pending) {
+         _rtx_timeout_pending = false;
+ 
+@@ -681,6 +697,14 @@ TcpSink::receivePacket(Packet& pkt) {
              }
          }
      }
 +
-+    // AstraSim entry point
-+    // Use IDs memorized at point of adding the flow, as well as unique src tag for the transition
-+    if (_cumulative_ack >= _src->_flow_size && astrasim_flow_finish_recv_cb) {
-+        int tag = _src->getFlowId();
-+        int src_id = _debug_srcid;
-+        int dst_id = _debug_dstid;
-+        std::cout << "Finish receiving flow " << tag << " from " << src_id << " to " << dst_id << std::endl;
-+        astrasim_flow_finish_recv_cb(src_id, dst_id, _src->_flow_size, tag);
++    if (_cumulative_ack >= _src->_flow_size && !_astrasim_notified) {
++        // AstraSim entry point
++        _astrasim_notified = true;
++        if (astrasim_flow_finish_recv_cb)
++            astrasim_flow_finish_recv_cb(_src->getFlowId());
 +    }
 +
      send_ack(ts,marked);
  }
  
 diff --git a/sim/tcp.h b/sim/tcp.h
-index 127bbdb..3c97422 100755
+index 127bbdb..8eb3fa7 100755
 --- a/sim/tcp.h
 +++ b/sim/tcp.h
-@@ -44,10 +44,9 @@ public:
+@@ -44,7 +44,6 @@ public:
  
      void set_flowsize(uint64_t flow_size_in_bytes) {
          _flow_size = flow_size_in_bytes+_mss;
 -        cout << "Setting flow size to " << _flow_size << endl;
-+        // cout << "Setting flow size to " << _flow_size << endl;
      }
      flowid_t getFlowId() {return _flow.flow_id();}
--    
-     void set_ssthresh(uint64_t s){_ssthresh = s;}
-     void set_cwnd(uint64_t s){_cwnd = s;}
-     void set_dst(int d){_dst=d;}
-@@ -137,6 +136,12 @@ private:
+     
+@@ -137,6 +136,16 @@ private:
      //void clearWhen(TcpAck::seq_t from, TcpAck::seq_t to);
      //void showWhen (int from, int to);
      string _nodename;
 +    public:
 +        // for AstraSim
 +        inline void setFlowId(flowid_t flow_id) { _flow.set_flowid(flow_id); }
-+        void (*astrasim_flow_finish_send_cb)(int, int, int, int) = nullptr;
-+        int _debug_srcid = -1;
-+        int _debug_dstid = -1;
++        // Called once, when every byte of the flow has been acknowledged.
++        void (*astrasim_flow_finish_send_cb)(flowid_t flow_id) = nullptr;
++        bool _astrasim_notified = false;
++        // Start without the SYN exchange: a connection that already exists.
++        bool _astrasim_preestablished = false;
++        // Lower bound of the retransmission timeout (upstream: 250 ms).
++        static simtime_picosec _min_rto;
  };
  
  class TcpSink : public PacketSink, public DataReceiver {
-@@ -180,6 +185,12 @@ private:
+@@ -180,6 +189,11 @@ private:
      void send_ack(simtime_picosec ts,bool marked);
  
      string _nodename;
 +    public:
 +    // for AstraSim
-+    inline void setFlowId(flowid_t flow_id) { _src->_flow.set_flowid(flow_id); }
-+    void (*astrasim_flow_finish_recv_cb)(int, int, int, int) = nullptr;
-+    int _debug_srcid = -1;
-+    int _debug_dstid = -1;
++    // Called once, when the last byte of the flow has arrived.
++    void (*astrasim_flow_finish_recv_cb)(flowid_t flow_id) = nullptr;
++    bool _astrasim_notified = false;
  };
  
  class TcpRtxTimerScanner : public EventSource {

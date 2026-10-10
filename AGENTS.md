@@ -2170,13 +2170,16 @@ by packet; the public description is
   completion has left; the patched `TcpSrc` ignores ACKs and timers after its
   last acknowledgement, so no new packet appears. Waiting for links to go idle
   instead retained ~45% of 2.1M flows on a busy run.
-- **`htsim_astrasim.patch` is the only change to `csg-htsim`.** Generate it
-  with `git diff` in the submodule (its sources are CRLF; preserve that), and
+- **`htsim_astrasim.patch` is the only change to `csg-htsim`.** The committed
+  `csg-htsim` is its upstream revision (see `astra-sim/README.md`) with the
+  patch applied; change both together (the sources are CRLF; preserve that).
   `build.sh` refuses a tree carrying anything else.
 - **Consistency check:** with `{"transport": "raw"}`, or TCP with a huge
-  `initial_cwnd_packets`, every `serving/validate.sh` scenario should land
-  within a fraction of a percent of its analytical baseline. A larger gap
-  means the two backends no longer describe the same links or loop.
+  `initial_cwnd_packets`, `serving/validate.sh` scenarios land within a
+  fraction of a percent of their analytical baselines (50 of 70 exactly).
+  A larger gap means the two backends no longer describe the same links or
+  loop, unless analytical itself moves as much under a 1% link perturbation:
+  `moe_dp_pp` is non-monotonic in communication cost and sits at -5%.
 
 ### Chakra graph converter
 The Chakra converter (`astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py`)

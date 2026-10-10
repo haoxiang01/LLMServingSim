@@ -38,15 +38,23 @@ function setup() {
 }
 
 function patch_htsim() {
-  patch -p1 -d "${SCRIPT_DIR:?}"/../../extern/network_backend/csg-htsim \
-    --forward --reject-file=- -i "${SCRIPT_DIR:?}"/htsim_astrasim.patch && true
-  ret=$?
-  if [[ $ret -eq 0 ]]; then
+  local htsim_dir="${SCRIPT_DIR:?}"/../../extern/network_backend/csg-htsim
+  local patch_file="${SCRIPT_DIR:?}"/htsim_astrasim.patch
+  # The csg-htsim committed in LLMServingSim already carries this patch, so
+  # normally there is nothing to do. A pristine upstream tree gets it applied;
+  # anything else (e.g. an older version of the patch) must not be built.
+  if patch -p1 -d "${htsim_dir}" -R --dry-run -s -f -i "${patch_file}" >/dev/null 2>&1; then
+    echo "HTSim patch already applied"
+  elif patch -p1 -d "${htsim_dir}" --dry-run -s -f -i "${patch_file}" >/dev/null 2>&1; then
+    patch -p1 -d "${htsim_dir}" -s -f -i "${patch_file}"
+    # Objects built before the patch would not see its header changes.
+    make -C "${htsim_dir}"/sim clean >/dev/null
     echo "HTSim patch applied successfully"
-  elif [[ $ret -eq 1 ]]; then
-    echo "HTSim patch skipped"
   else
-    echo "HTSim patch failed"
+    echo "HTSim patch failed: csg-htsim has other local changes. From the"
+    echo "LLMServingSim root, restore it with"
+    echo "  git checkout -- astra-sim/extern/network_backend/csg-htsim"
+    echo "and rebuild."
     exit 1
   fi
 }

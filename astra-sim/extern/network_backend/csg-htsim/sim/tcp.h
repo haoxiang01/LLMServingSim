@@ -44,7 +44,6 @@ public:
 
     void set_flowsize(uint64_t flow_size_in_bytes) {
         _flow_size = flow_size_in_bytes+_mss;
-        cout << "Setting flow size to " << _flow_size << endl;
     }
     flowid_t getFlowId() {return _flow.flow_id();}
     
@@ -137,6 +136,16 @@ private:
     //void clearWhen(TcpAck::seq_t from, TcpAck::seq_t to);
     //void showWhen (int from, int to);
     string _nodename;
+    public:
+        // for AstraSim
+        inline void setFlowId(flowid_t flow_id) { _flow.set_flowid(flow_id); }
+        // Called once, when every byte of the flow has been acknowledged.
+        void (*astrasim_flow_finish_send_cb)(flowid_t flow_id) = nullptr;
+        bool _astrasim_notified = false;
+        // Start without the SYN exchange: a connection that already exists.
+        bool _astrasim_preestablished = false;
+        // Lower bound of the retransmission timeout (upstream: 250 ms).
+        static simtime_picosec _min_rto;
 };
 
 class TcpSink : public PacketSink, public DataReceiver {
@@ -180,6 +189,11 @@ private:
     void send_ack(simtime_picosec ts,bool marked);
 
     string _nodename;
+    public:
+    // for AstraSim
+    // Called once, when the last byte of the flow has arrived.
+    void (*astrasim_flow_finish_recv_cb)(flowid_t flow_id) = nullptr;
+    bool _astrasim_notified = false;
 };
 
 class TcpRtxTimerScanner : public EventSource {

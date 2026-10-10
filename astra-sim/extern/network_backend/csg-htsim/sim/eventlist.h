@@ -41,6 +41,13 @@ public:
     static inline simtime_picosec now() {return EventList::_lasteventtime;}
     static Handle nullHandle() {return _pendingsources.end();}
 
+    // AstraSim: inspect the pending events without running them, so a
+    // frontend can advance the simulation one timestamp at a time.
+    static bool hasPendingEvents() {return !_pending_triggers.empty() || !_pendingsources.empty();}
+    static simtime_picosec nextEventTime() {
+        return _pending_triggers.empty() ? _pendingsources.begin()->first : _lasteventtime;
+    }
+
 
     static EventList& getTheEventList();
     EventList(const EventList&)      = delete;  // disable Copy Constructor

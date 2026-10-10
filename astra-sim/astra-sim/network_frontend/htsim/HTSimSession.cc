@@ -1,254 +1,242 @@
+/******************************************************************************
+This source code is licensed under the MIT license found in the
+LICENSE file in the root directory of this source tree.
+*******************************************************************************/
+
 #include "HTSimSession.hh"
-#include "HTSimSessionImpl.hh"
+#include "HTSimProtoRaw.hh"
 #include "HTSimProtoTcp.hh"
 
-#include <iostream>
+#include "config.h"
+#include "eventlist.h"
+
+#include <cassert>
+#include <queue>
+#include <stdexcept>
 
 namespace HTSim {
 
-std::map<std::pair<int, HTSim::Dir>, int> HTSimSession::node_bytes_sent;
-std::map<std::pair<HTSim::MsgEventKey, int>, HTSim::MsgEvent>
-    HTSimSession::send_waiting;
-std::map<HTSim::MsgEventKey, HTSim::MsgEvent> HTSimSession::recv_waiting;
-std::map<HTSim::MsgEventKey, int> HTSimSession::msg_standby;
-std::map<int, int> HTSimSession::flow_id_to_tag;
 HTSimSession* HTSimSession::session = nullptr;
-HTSimConf HTSimSession::conf;
 
-typedef void (*EventHandler)(void*);
+/**
+ * Runs ASTRA-sim callbacks from the HTSim event list.
+ *
+ * One event source carries every pending callback, so a long run does not
+ * allocate (and register with HTSim's logger table) an event source per
+ * compute node. Callbacks due at one timestamp run in scheduling order,
+ * including ones scheduled at that timestamp while it is being processed,
+ * as the analytical backend's EventQueue does.
+ */
+class HTSimSession::Dispatcher final : public EventSource {
+  public:
+    explicit Dispatcher(EventList& eventlist) : EventSource(eventlist, "astra_dispatcher") {}
 
-class AstraEventSrc : public EventSource {
-public:
-    AstraEventSrc(EventHandler msg_handler, void* fun_arg, EventList& eventList);
-    void doNextEvent();
+    void schedule(simtime_picosec when, std::function<void()> fn) {
+        entries.push(Entry{when, next_seq++, std::move(fn)});
+        if (!running) {
+            arm();
+        }
+    }
 
-private:
-    EventHandler _msg_handler;
-    void* _fun_arg;
+    void doNextEvent() override {
+        armed = false;
+        running = true;
+        const auto now = EventList::now();
+        while (!entries.empty() && entries.top().when <= now) {
+            // Move out before running: the callback may schedule more.
+            auto fn = std::move(const_cast<Entry&>(entries.top()).fn);
+            entries.pop();
+            fn();
+        }
+        running = false;
+        arm();
+    }
+
+  private:
+    struct Entry {
+        simtime_picosec when;
+        uint64_t seq;
+        std::function<void()> fn;
+    };
+    struct Later {
+        bool operator()(const Entry& a, const Entry& b) const {
+            return a.when != b.when ? a.when > b.when : a.seq > b.seq;
+        }
+    };
+
+    /// Keep exactly one pending HTSim event, at the earliest entry's time.
+    void arm() {
+        if (entries.empty()) {
+            return;
+        }
+        const auto when = entries.top().when;
+        if (armed) {
+            if (armed_at <= when) {
+                return;
+            }
+            EventList::cancelPendingSourceByHandle(*this, handle);
+        }
+        handle = EventList::sourceIsPendingGetHandle(*this, when);
+        armed = true;
+        armed_at = when;
+    }
+
+    std::priority_queue<Entry, std::vector<Entry>, Later> entries;
+    uint64_t next_seq = 0;
+    bool running = false;
+    bool armed = false;
+    simtime_picosec armed_at = 0;
+    EventList::Handle handle;
 };
 
-// Event source for scheduling callbacks to be executed by HTSim
-std::vector<AstraEventSrc*> astra_events;
-
-AstraEventSrc::AstraEventSrc(EventHandler msg_handler,
-                             void* fun_arg,
-                             EventList& eventList)
-    : EventSource(eventList, "astraSimSrc"), _msg_handler(msg_handler), _fun_arg(fun_arg) {
-}
-
-void AstraEventSrc::doNextEvent() {
-    // Run the handler
-    _msg_handler(_fun_arg);
-}
-
-std::stringstream& operator>> (std::stringstream& is, HTSimProto& proto) {
-    std::string s;
-    is >> s;
-    if (s == "tcp") {
-        proto = HTSimProto::Tcp;
-    } else {
-        proto = HTSimProto::None;
+HTSimSession& HTSimSession::init(const HTSimConfig& config) {
+    if (session != nullptr) {
+        throw std::logic_error("HTSim session initialized twice");
     }
-    return is;
-}
-
-// Send_flow commands the HTSim simulator to schedule a message to be sent
-// between two pair of nodes. send_flow is triggered by sim_send.
-void HTSimSession::send_flow(FlowInfo flow,
-                            int flow_id,
-                            void (*msg_handler)(void* fun_arg),
-                            void* fun_arg) {
-    // Create a MsgEvent instance and register callback function.
-    std::cout << "Send flow " << flow_id << " from " << flow.src << " to " << flow.dst
-              << " with size " << flow.size << "\n";
-    MsgEvent send_event = MsgEvent(flow.src, flow.dst, Dir::Send, flow.size, fun_arg, msg_handler);
-    flow_id_to_tag[flow_id] = flow.tag;
-    std::pair<MsgEventKey, int> send_event_key = std::make_pair(
-        std::make_pair(flow.tag, std::make_pair(send_event.src_id, send_event.dst_id)), flow_id);
-    HTSimSession::send_waiting[send_event_key] = send_event;
-
-    // Create a queue pair and schedule within the HTSim simulator.
-    impl->schedule_htsim_event(flow, flow_id);
-}
-
-// notify_receiver_receive_data looks at whether the astra-sim has issued
-// sim_recv for this message. If the system layer is waiting for this message,
-// call the callback handler for the MsgEvent. If the system layer is not *yet*
-// waiting for this message, register that this message has arrived,
-// so that the system layer can later call the callback handler when sim_recv
-// is called.
-void HTSimSession::notify_receiver_receive_data(int src_id,
-                                                int dst_id,
-                                                int message_size,
-                                                int tag,
-                                                int flow_id) {
-    MsgEventKey recv_expect_event_key = make_pair(tag, make_pair(src_id, dst_id));
-
-    if (HTSimSession::recv_waiting.find(recv_expect_event_key) !=
-        HTSimSession::recv_waiting.end()) {
-        // The Sys object is waiting for packets to arrive.
-        MsgEvent recv_expect_event = recv_waiting[recv_expect_event_key];
-        if (message_size == recv_expect_event.remaining_msg_bytes) {
-            // We received exactly the amount of data what Sys object was expecting.
-            HTSimSession::recv_waiting.erase(recv_expect_event_key);
-            recv_expect_event.callHandler();
-        } else if (message_size > recv_expect_event.remaining_msg_bytes) {
-            // We received more packets than the Sys object is expecting.
-            // Place task in received_msg_standby_hash and wait for Sys object to issue more sim_recv
-            // calls. Call callback handler for the amount Sys object was waiting for.
-            HTSimSession::msg_standby[recv_expect_event_key] = message_size - recv_expect_event.remaining_msg_bytes;
-            HTSimSession::recv_waiting.erase(recv_expect_event_key);
-            recv_expect_event.callHandler();
-        } else {
-            // There are still packets to arrive.
-            // Reduce the number of packets we are waiting for. Do not call callback
-            // handler.
-            recv_expect_event.remaining_msg_bytes -= message_size;
-            HTSimSession::recv_waiting[recv_expect_event_key] = recv_expect_event;
-        }
-    } else {
-        // The Sys object is not yet waiting for packets to arrive.
-        if (HTSimSession::msg_standby.find(recv_expect_event_key) ==
-            HTSimSession::msg_standby.end()) {
-            // Place task in msg_standby and wait for Sys object to issue more sim_recv
-            // calls.
-            HTSimSession::msg_standby[recv_expect_event_key] = message_size;
-        } else {
-            // Sys object is still waiting. Add number of bytes we are waiting for.
-            HTSimSession::msg_standby[recv_expect_event_key] += message_size;
-        }
-    }
-
-    // Add to the number of total bytes received.
-    if (HTSimSession::node_bytes_sent.find(make_pair(dst_id, Dir::Receive)) ==
-        HTSimSession::node_bytes_sent.end()) {
-        HTSimSession::node_bytes_sent[make_pair(dst_id, Dir::Receive)] = message_size;
-    } else {
-        HTSimSession::node_bytes_sent[make_pair(dst_id, Dir::Receive)] += message_size;
-    }
-}
-
-void HTSimSession::notify_sender_sending_finished(int src_id,
-                                                  int dst_id,
-                                                  int message_size,
-                                                  int tag,
-                                                  int flow_id) {
-    // Lookup the send_event registered at send_flow().
-    std::pair<MsgEventKey, int> send_event_key =
-        make_pair(make_pair(tag, make_pair(src_id, dst_id)), flow_id);
-    if (HTSimSession::send_waiting.find(send_event_key) == HTSimSession::send_waiting.end()) {
-        std::cerr << "Cannot find send_event in sent_hash. Something is wrong."
-             << "src_id, dst_id: " << src_id << " " << dst_id << " : " << tag << " - " << flow_id
-             << "\n";
-        assert(0 && "notify_sender_sending_finished failed");
-    }
-
-    // Verify that the (HTSim identified) sent message size matches what was
-    // expected by the system layer.
-    MsgEvent send_event = HTSimSession::send_waiting[send_event_key];
-    HTSimSession::send_waiting.erase(send_event_key);
-
-    // Add to the number of total bytes sent.
-    if (HTSimSession::node_bytes_sent.find(make_pair(src_id, Dir::Send)) ==
-        HTSimSession::node_bytes_sent.end()) {
-        HTSimSession::node_bytes_sent[make_pair(src_id, Dir::Send)] = message_size;
-    } else {
-        HTSimSession::node_bytes_sent[make_pair(src_id, Dir::Send)] += message_size;
-    }
-    send_event.callHandler();
-}
-
-// flow_finish is triggered by HTSim to indicate that a flow has finished.
-// Registered as the callback handler for the source
-// instance created at send_flow.
-void HTSimSession::flow_finish_send(int src_id, int dst_id, int msg_size, int flow_id) {
-
-    int tag = flow_id_to_tag[flow_id];
-    // Let sender knows that the flow has finished.
-    notify_sender_sending_finished(src_id, dst_id, msg_size, tag, flow_id);
-
-    if (!conf.recv_flow_finish) {
-        // Let receiver knows that it has received packets.
-        notify_receiver_receive_data(src_id, dst_id, msg_size, tag, flow_id);
-    }
-}
-
-// flow_finish is triggered by HTSim to indicate that a flow has finished.
-// Registered as the callback handler for the sink
-// instance created at send_flow.
-void HTSimSession::flow_finish_recv(int src_id, int dst_id, int msg_size, int flow_id) {
-
-    if (conf.recv_flow_finish) {
-        int tag = flow_id_to_tag[flow_id];
-        // Let receiver knows that it has received packets.
-        notify_receiver_receive_data(src_id, dst_id, msg_size, tag, flow_id);
-    }
-
-}
-
-void HTSimSession::finish() {
-    impl->finish();
-}
-
-void HTSimSession::stop_simulation() {
-    impl->stop_simulation();
-}
-
-void HTSimSession::HTSimSessionImpl::stop_simulation() {
-    std::cout << "HTSim stopping simulation..." << std::endl;
-    auto now = eventlist.now();
-    eventlist.setEndtime(now);
-}
-
-// Constructor creates inner impl
-HTSimSession& HTSimSession::init(const HTSim::tm_info* const tm, const int argc, char** argv, const HTSimProto proto) {
-    if (session != nullptr)
-        assert(0 && "HTSim session initialized twice");
-    static HTSimSession session_(tm, argc, argv, proto);
+    static HTSimSession session_(config);
     session = &session_;
     return session_;
-};
-
-// Instance getter
-HTSimSession& HTSimSession::instance() {
-    if (session == nullptr)
-        assert(0 && "HTSim session not initialized");
-    return (*session);
 }
 
-HTSimSession::HTSimSession(const HTSim::tm_info* const tm, int argc, char** argv, HTSimProto proto) {
-    switch(proto) {
-        case HTSimProto::Tcp:
-            impl = std::make_unique<HTSimProtoTcp>(tm, argc, argv);
-            break;
-        default:
-            std::cerr << "Unknown HTSim protocol" << std::endl;
-            abort();
+HTSimSession& HTSimSession::instance() {
+    assert(session != nullptr && "HTSim session not initialized");
+    return *session;
+}
+
+HTSimSession::HTSimSession(const HTSimConfig& config) {
+    auto& eventlist = EventList::getTheEventList();
+    // Never stop on a time limit: the frontend decides when the run ends.
+    EventList::setEndtime(0);
+    dispatcher = std::make_unique<Dispatcher>(eventlist);
+    switch (config.transport) {
+    case HTSimTransport::Tcp:
+        protocol = std::make_unique<HTSimProtoTcp>(config, eventlist);
+        break;
+    case HTSimTransport::Raw:
+        protocol = std::make_unique<HTSimProtoRaw>(config, eventlist);
+        break;
     }
 }
 
-void HTSimSession::schedule_astra_event(long double when_ns,
-                                        void (*msg_handler)(void* fun_arg),
-                                        void* fun_arg) {
-    AstraEventSrc* src = new AstraEventSrc(msg_handler, fun_arg, impl->eventlist);
-    astra_events.push_back(src);
-    impl->eventlist.sourceIsPendingRel(*src, timeFromNs(when_ns));
+HTSimSession::~HTSimSession() = default;
+
+bool HTSimSession::has_pending_events() const {
+    return EventList::hasPendingEvents();
 }
 
-// Wrapper functions
-
-void HTSimSession::run(const HTSim::tm_info* const tm) {
-    impl->run(tm);
+void HTSimSession::proceed() {
+    assert(EventList::hasPendingEvents());
+    const auto when = EventList::nextEventTime();
+    while (EventList::hasPendingEvents() && EventList::nextEventTime() == when) {
+        EventList::doNextEvent();
+    }
 }
 
-double HTSimSession::get_time_ns() {
-    return timeAsNs(impl->eventlist.now());
+void HTSimSession::advance_idle(const double delta_ns) {
+    assert(!EventList::hasPendingEvents());
+    schedule(delta_ns, [] {});
+    proceed();
 }
 
-double HTSimSession::get_time_us() {
-    return timeAsUs(impl->eventlist.now());
+double HTSimSession::get_time_ns() const {
+    return timeAsNs(EventList::now());
 }
 
-HTSimSession::~HTSimSession() {}
+void HTSimSession::schedule(const double delta_ns, std::function<void()> fn) {
+    assert(delta_ns >= 0);
+    dispatcher->schedule(EventList::now() + timeFromNs(delta_ns), std::move(fn));
+}
 
-} // namespace HTSim
+void HTSimSession::send(const int src,
+                        const int dst,
+                        const uint64_t size,
+                        const int tag,
+                        EventHandler handler,
+                        void* arg) {
+    if (size == 0 || src == dst) {
+        // Nothing crosses a link. Complete both sides at this timestamp.
+        schedule(0, [this, src, dst, size, tag, handler, arg] {
+            deliver(src, dst, tag, size);
+            handler(arg);
+        });
+        return;
+    }
+    const auto flow_id = ++next_flow_id;
+    flows.emplace(flow_id, Flow{src, dst, size, tag, handler, arg, false});
+    protocol->start_flow(flow_id, src, dst, size);
+}
+
+void HTSimSession::recv(const int src,
+                        const int dst,
+                        const uint64_t size,
+                        const int tag,
+                        EventHandler handler,
+                        void* arg) {
+    const auto key = MsgKey(tag, {src, dst});
+    recv_queues[key].pending.push_back(PendingRecv{size, handler, arg});
+    // Data that already arrived completes the receive at this timestamp, but
+    // not from inside sim_recv itself, matching the analytical backend.
+    drain(key, false);
+}
+
+void HTSimSession::flow_received(const flowid_t flow_id) {
+    auto it = flows.find(flow_id);
+    assert(it != flows.end());
+    auto& flow = it->second;
+    if (!flow.received) {
+        flow.received = true;
+        deliver(flow.src, flow.dst, flow.tag, flow.size);
+    }
+}
+
+void HTSimSession::flow_sent(const flowid_t flow_id) {
+    auto it = flows.find(flow_id);
+    assert(it != flows.end());
+    // Copy out first: delivering and the handler may start new flows.
+    const auto flow = it->second;
+    flows.erase(it);
+    if (!flow.received) {
+        // Every byte acknowledged implies every byte arrived.
+        deliver(flow.src, flow.dst, flow.tag, flow.size);
+    }
+    flow.handler(flow.arg);
+}
+
+std::string HTSimSession::summary() const {
+    auto out = std::ostringstream();
+    out << "HTSim: " << next_flow_id << " flows, " << flows.size() << " in flight, "
+        << recv_queues.size() << " receive queues; " << protocol->summary();
+    return out.str();
+}
+
+void HTSimSession::deliver(const int src, const int dst, const int tag, const uint64_t size) {
+    const auto key = MsgKey(tag, {src, dst});
+    recv_queues[key].arrived += size;
+    drain(key, true);
+}
+
+void HTSimSession::drain(const MsgKey& key, const bool immediate) {
+    auto it = recv_queues.find(key);
+    assert(it != recv_queues.end());
+    auto ready = std::vector<PendingRecv>();
+    auto& queue = it->second;
+    while (!queue.pending.empty() && queue.arrived >= queue.pending.front().size) {
+        queue.arrived -= queue.pending.front().size;
+        ready.push_back(queue.pending.front());
+        queue.pending.pop_front();
+    }
+    if (queue.pending.empty() && queue.arrived == 0) {
+        recv_queues.erase(it);
+    }
+    for (const auto& recv : ready) {
+        if (immediate) {
+            recv.handler(recv.arg);
+        } else {
+            const auto handler = recv.handler;
+            const auto arg = recv.arg;
+            schedule(0, [handler, arg] { handler(arg); });
+        }
+    }
+}
+
+}  // namespace HTSim
