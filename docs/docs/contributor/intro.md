@@ -26,17 +26,18 @@ tour](./codebase-tour)** instead.
 You do **not** need a GPU just to run the simulator. The bundled
 RTXPRO6000 / H100 profile bundles let you simulate without hardware.
 
-## 1. Clone with submodules
+## 1. Clone the repository
 
-ASTRA-Sim lives as a git submodule. Always clone with
-`--recurse-submodules`:
+ASTRA-Sim and its dependencies are committed under `astra-sim/`.
+`--recurse-submodules` also covers revisions that still track them as
+git submodules:
 
 ```bash
 git clone --recurse-submodules https://github.com/casys-kaist/LLMServingSim.git
 cd LLMServingSim
 ```
 
-If you already cloned without submodules:
+For such a revision cloned without submodules:
 
 ```bash
 git submodule update --init --recursive
@@ -75,10 +76,10 @@ and installs the Chakra trace converter. Takes a few minutes the
 first time, ~30 seconds on incremental rebuilds. Rerun whenever you
 touch `astra-sim/` C++ sources.
 
-If the compile fails with a missing dependency, the most common
-cause is the submodule not being checked out. Rerun
-`git submodule update --init --recursive` from the host and try
-again.
+If the compile fails with a missing dependency, check that
+`astra-sim/extern/` is populated: on a revision that still uses
+submodules, rerun `git submodule update --init --recursive` from the
+host and try again.
 
 ## 4. Smoke run
 
@@ -138,9 +139,9 @@ You're now set up. Before opening a PR, please skim:
 
 ## Common setup gotchas
 
-1. **`--recurse-submodules` forgotten** → ASTRA-Sim is missing,
-   `compile.sh` fails immediately. Rerun
-   `git submodule update --init --recursive`.
+1. **`--recurse-submodules` forgotten on a revision that uses
+   submodules** → ASTRA-Sim is missing, `compile.sh` fails immediately.
+   Rerun `git submodule update --init --recursive`.
 2. **Wrong container for the task** → profiler / bench scripts will
    complain about missing CUDA or vLLM. Switch to
    `scripts/docker-vllm.sh`.

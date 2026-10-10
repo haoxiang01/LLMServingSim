@@ -178,7 +178,7 @@ step is silently a no-op if the source is set to anything else.
   category once per release, summarize final user-visible effects, and retain
   upgrade requirements and contributor credit. Follow the
   [entry guidelines](docs/contributor/pr-workflow.md#changelog-entries).
-  Check release-range commits and net changes, including submodules, rather
+  Check release-range commits and net changes, including `astra-sim/`, rather
   than treating the previous changelog as a complete inventory.
 - **CLI references**: compare registered options, negative boolean forms,
   defaults and subcommand scope with the complete reference and directory

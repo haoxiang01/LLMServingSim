@@ -17,7 +17,9 @@ versions.
 **Symptom:** Build fails with errors about missing files under
 `astra-sim/extern/graph_frontend/chakra/` or `astra-sim/build/`.
 
-**Cause:** You cloned without `--recurse-submodules`.
+**Cause:** You cloned a revision that tracks ASTRA-Sim and its
+dependencies as git submodules without `--recurse-submodules`. Current
+revisions commit them under `astra-sim/`.
 
 **Fix:**
 

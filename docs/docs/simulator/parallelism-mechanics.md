@@ -361,7 +361,7 @@ persist across batch graphs; exhausting the tag namespace fails explicitly
 instead of wrapping onto an outstanding message. Explicit communicator
 handling is unchanged.
 
-Update and rebuild the ASTRA-Sim submodule together with this frontend
+Rebuild ASTRA-Sim together with this frontend
 contract. A backend with one global collective counter can wait forever on
 an EP operation after one DP member skipped a TP-only head operation. This
 fix changes message matching, not bandwidth, latency or compute time.

@@ -89,7 +89,7 @@ LLMServingSim/
 │   ├── install-vllm.sh         # bare-metal vLLM install (uv venv)
 │   ├── monitor_run.py          # bounded child-process execution + resource telemetry
 │   └── compile.sh              # ASTRA-Sim + Chakra build
-└── astra-sim/                  # ASTRA-Sim C++ backend (submodule)
+└── astra-sim/                  # ASTRA-Sim C++ backend, committed with its dependencies
     ├── inputs/                 # Generated configs (network, memory, system)
     └── extern/graph_frontend/chakra/  # Chakra trace converter
 ```
@@ -2281,16 +2281,16 @@ in-progress entries are roadmap statements, not supported behavior or accuracy c
   guides for implementation details instead of accumulating per-commit stories.
   Preserve published release records when tidying pending changes.
 - When consolidating release notes, compare commits and the net code diff since
-  the previous release, including changed submodules. The old changelog is not
+  the previous release, including `astra-sim/`. The old changelog is not
   an exhaustive inventory; do not advertise reverted experiments as features.
 - Before committing, inspect the staged file list and diff for both exclusions
   and mandatory documentation coverage. Do not stage the whole dirty worktree.
 - Do not add AI-tool references or AI attribution trailers to commit messages.
-- Publish required submodule commits before their parents: Chakra, ASTRA-Sim,
-  then the frontend. Check remote reachability and use
-  `git push --recurse-submodules=check` for the parent; do not publish local backup
+- ASTRA-Sim, Chakra and ASTRA-Sim's backends are committed under `astra-sim/`,
+  not tracked as submodules. Record the upstream repository and revision of a
+  replaced dependency in `astra-sim/README.md`. Do not publish local backup
   refs or force-push over independent remote work. Rebuild the backend and
-  reinstall Chakra after updating the recursive submodules.
+  reinstall Chakra after changing `astra-sim/`.
 - Include the exact command used for validation and note any output CSV path in PRs
 - Describe which simulation mode is affected and the config/dataset used
 

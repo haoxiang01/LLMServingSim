@@ -151,7 +151,8 @@ for the existing pattern.
 
 ## ASTRA-Sim (`astra-sim/`)
 
-C++ network simulator, lives as a submodule. **Don't edit unless
+C++ network simulator, committed here together with its dependencies under
+`astra-sim/extern/`. **Don't edit unless
 the change targets simulator integration.** Most simulator-side
 changes never touch this.
 

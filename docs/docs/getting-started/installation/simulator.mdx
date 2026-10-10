@@ -8,7 +8,7 @@ title: Simulator setup
 The simulator runs in a Docker container based on
 [`astrasim/tutorial-micro2024`](https://hub.docker.com/r/astrasim/tutorial-micro2024).
 The image supplies Python 3.10 and ASTRA-Sim's **build** dependencies —
-it does **not** ship a pre-built backend for this repo's submodule, so
+it does **not** ship a pre-built backend for this repo's `astra-sim/`, so
 step 3 below is required, not optional. It also ships none of the
 Python packages the simulator imports; `docker-sim.sh` pip-installs
 those at launch.
@@ -20,15 +20,16 @@ with `bench validate` works in this simulator environment without a GPU.
 
 ## 1. Clone the repository
 
-The repo includes ASTRA-Sim and Chakra as git submodules, so you must
-clone with `--recurse-submodules`:
+ASTRA-Sim, Chakra and ASTRA-Sim's network and memory backends are committed
+under `astra-sim/`. `--recurse-submodules` is harmless and also fetches them
+for revisions that still track them as git submodules:
 
 ```bash
 git clone --recurse-submodules https://github.com/casys-kaist/LLMServingSim.git
 cd LLMServingSim
 ```
 
-If you already cloned without `--recurse-submodules`, fix it with:
+For such a revision cloned without `--recurse-submodules`, fetch them with:
 
 ```bash
 git submodule update --init --recursive

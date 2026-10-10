@@ -15,6 +15,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) co
   [network backends](https://llmservingsim.ai/docs/simulator/network-backends)
   for the link model, settings and limitations.
 
+### Changed
+
+- ASTRA-Sim, Chakra and ASTRA-Sim's network and memory backends are committed
+  under `astra-sim/` instead of being tracked as git submodules;
+  `astra-sim/README.md` records each upstream revision. A clone made while
+  `astra-sim` was a submodule must run `git submodule deinit -f astra-sim` and
+  move the `astra-sim` directory aside before pulling, then rebuild with
+  `./scripts/compile.sh`.
+
 ## [v1.2.0] - 2026-10-06
 
 Version 1.2.0 expands serving simulation, profiling and validation across dense,

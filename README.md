@@ -46,8 +46,8 @@ Complete CLI references: [simulator](https://llmservingsim.ai/docs/reference/cli
 [profiler](https://llmservingsim.ai/docs/profiler/running#calling-python--m-profiler-directly),
 [bench](https://llmservingsim.ai/docs/reference/bench-cli), and
 [workload generator](https://llmservingsim.ai/docs/workloads/sharegpt-generators).
-When updating an existing clone, synchronize its recursive submodules and
-rebuild ASTRA-Sim and Chakra together; see the
+ASTRA-Sim and its dependencies are committed under `astra-sim/`. After
+updating an existing clone, rebuild ASTRA-Sim and Chakra together; see the
 [update instructions](https://llmservingsim.ai/docs/contributor/pr-workflow#publishing-submodule-changes).
 
 GPU profiling and new benchmarks target **vLLM 0.28.0**; simulation and comparison

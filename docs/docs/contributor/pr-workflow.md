@@ -89,7 +89,7 @@ Edit the root `CHANGELOG.md`; the website page is generated from it.
 - Write one or two sentences per user-visible change. Merge related entries
   into the final behavior rather than appending a new account of every commit.
 - Cross-check commits and the net code diff since the previous release, including
-  changed submodules. Existing notes may omit changes; reverted experiments must
+  changes under `astra-sim/`. Existing notes may omit changes; reverted experiments must
   not be presented as current features.
 - Preserve removed options, their replacements, required data refreshes and
   validation limits. Keep issue/PR links and contributor credit with the change.
@@ -122,34 +122,31 @@ Run through the checklist:
    Sanity-check with `git diff --cached --stat` and
    `git diff --cached --check`.
 
-## Publishing submodule changes
+## Updating ASTRA-Sim and its dependencies {#publishing-submodule-changes}
 
-The frontend, ASTRA-Sim and Chakra are separate Git repositories. A parent
-commit records a submodule commit ID; pushing the parent does not publish that
-commit to the submodule's remote.
+ASTRA-Sim, Chakra and ASTRA-Sim's backends are committed in this repository
+under `astra-sim/`, so a change to them is an ordinary commit here and one push
+publishes everything. `astra-sim/README.md` records the upstream repository and
+revision each directory was taken from; update that table when replacing one.
 
-1. Check each repository's configured remote, branch and unpublished diff.
-   Keep temporary verification files and private run records out of every
-   commit being published, not only the final working tree.
-2. Publish required Chakra commits to the configured fork first, then publish
-   ASTRA-Sim with its recorded Chakra pointer. Verify both commits are reachable
-   from their intended remote branches.
-3. Publish the frontend branch with `git push --recurse-submodules=check`.
-   This refuses a parent push when referenced submodule commits are not available
-   on a remote. Do not use `--all` or `--mirror` to include local backup refs.
+Keep temporary verification files and private run records out of every commit
+being published, not only the final working tree. Use normal fast-forward
+pushes; if a remote branch has advanced independently, reconcile it before
+publishing rather than force-pushing over other work. Do not use `--all` or
+`--mirror` to include local backup refs.
 
-Use normal fast-forward pushes; if a remote branch has advanced independently,
-reconcile it before publishing rather than force-pushing over other work.
-Only submodules with new required commits need a push.
-
-Consumers updating an existing clone should run:
+Consumers updating an existing clone rebuild after pulling, since the
+installed backend binary and Chakra package are not replaced by a pull:
 
 ```bash
 git pull --ff-only
-git submodule sync --recursive
-git submodule update --init --recursive
 ./scripts/compile.sh
 ```
+
+A clone made while `astra-sim` was still a submodule must drop it before its
+first pull of the committed directories, or the checkout refuses to overwrite
+it: `git submodule deinit -f astra-sim`, then move the `astra-sim` directory
+aside.
 
 Run the build inside the documented simulator environment. It rebuilds ASTRA-Sim
 and installs the pinned Chakra converter; source edits alone do not update an
