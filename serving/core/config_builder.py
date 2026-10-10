@@ -718,6 +718,7 @@ def build_cluster_config(astra_sim, cluster_config_path, enable_local_offloading
         "link_bw": link_bw,
         "link_latency": link_latency,
         "collective_links": collective_links,
+        "htsim": parse_htsim_settings(cluster_config.get("htsim")),
         "inputs_root": inputs_root,
         "network_config_path": network_config_path,
         "system_config_path": system_config_path,
@@ -726,6 +727,90 @@ def build_cluster_config(astra_sim, cluster_config_path, enable_local_offloading
     # print("Current cluster : {}".format(cluster))
                 
     return cluster
+
+# Packet-level settings of the HTSim backend, with the binary's own defaults.
+# Links themselves (bandwidth, latency, topology) come from the network config
+# every backend reads; these only describe what the analytical model has no
+# notion of.
+HTSIM_DEFAULTS = {
+    "transport": "tcp",          # "tcp", or "raw": full link bandwidth, no congestion control
+    "queue_bytes": 0,            # per-link output buffer; 0 = unbounded (lossless)
+    "mtu": 1500,                 # packet size in bytes, headers included
+    # TCP only
+    "initial_cwnd_packets": 10,  # TCP congestion window at the start of a message
+    "min_rto_us": 250000,        # lower bound of the TCP retransmission timeout
+    "initial_rto_us": 3000000,   # TCP retransmission timeout before the first RTT sample
+    "tcp_handshake": False,      # open every message with a SYN round trip
+}
+
+
+TCP_ONLY_SETTINGS = {"initial_cwnd_packets", "min_rto_us", "initial_rto_us", "tcp_handshake"}
+
+
+def parse_htsim_settings(raw):
+    """Validate the cluster config's optional ``htsim`` object."""
+    settings = dict(HTSIM_DEFAULTS)
+    if raw is None:
+        return settings
+    if not isinstance(raw, dict):
+        raise TypeError("'htsim' must be an object")
+    unknown = set(raw) - set(HTSIM_DEFAULTS)
+    if unknown:
+        raise ValueError(f"Unknown htsim setting(s): {sorted(unknown)}")
+
+    def _int(name, minimum):
+        value = raw[name]
+        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+            raise ValueError(f"htsim.{name} must be an integer >= {minimum}")
+        return value
+
+    if "transport" in raw:
+        if raw["transport"] not in ("tcp", "raw"):
+            raise ValueError("htsim.transport must be 'tcp' or 'raw'")
+        settings["transport"] = raw["transport"]
+    if settings["transport"] == "raw":
+        tcp_only = sorted(set(raw) & TCP_ONLY_SETTINGS)
+        if tcp_only:
+            raise ValueError(f"htsim setting(s) {tcp_only} apply to the tcp transport only")
+    if "queue_bytes" in raw:
+        settings["queue_bytes"] = _int("queue_bytes", 0)
+        if settings["transport"] == "raw" and settings["queue_bytes"] != 0:
+            raise ValueError("htsim.transport 'raw' needs unbounded buffers (queue_bytes 0): "
+                             "nothing retransmits a dropped packet")
+    if "mtu" in raw:
+        # An acknowledgement is 40 bytes; a data packet must be larger.
+        settings["mtu"] = _int("mtu", 41)
+    if "initial_cwnd_packets" in raw:
+        settings["initial_cwnd_packets"] = _int("initial_cwnd_packets", 1)
+    for name in ("min_rto_us", "initial_rto_us"):
+        if name in raw:
+            value = raw[name]
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(value) or value <= 0):
+                raise ValueError(f"htsim.{name} must be a positive number")
+            settings[name] = value
+    if "tcp_handshake" in raw:
+        if not isinstance(raw["tcp_handshake"], bool):
+            raise ValueError("htsim.tcp_handshake must be a boolean")
+        settings["tcp_handshake"] = raw["tcp_handshake"]
+    return settings
+
+
+def htsim_binary_args(settings, log_path=None):
+    """Command-line flags of the HTSim binary for validated settings."""
+    args = [
+        f"--htsim-transport={settings['transport']}",
+        f"--htsim-queue-bytes={settings['queue_bytes']}",
+        f"--htsim-mtu={settings['mtu']}",
+        f"--htsim-initial-cwnd={settings['initial_cwnd_packets']}",
+        f"--htsim-min-rto-us={settings['min_rto_us']}",
+        f"--htsim-initial-rto-us={settings['initial_rto_us']}",
+        f"--htsim-tcp-handshake={'true' if settings['tcp_handshake'] else 'false'}",
+    ]
+    if log_path is not None:
+        args.append(f"--htsim-log={log_path}")
+    return args
+
 
 # generates topology according to the input arguments
 def _create_network_config(network_config_path, instances, link_bw, link_latency,

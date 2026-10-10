@@ -109,6 +109,17 @@ python -m serving --cluster-config 'configs/cluster/single_node_single_instance.
 
 # -----------------------------------------------------------------------------------------------
 
+# HTSim network backend: the same links simulated packet by packet. Build it
+# first with ./scripts/compile.sh --htsim. TCP by default; add
+# "htsim": {"transport": "raw"} to the cluster config for full-bandwidth
+# packets without congestion control.
+# python -m serving --cluster-config 'configs/cluster/single_node_tp_pp_instance.json' \
+#     --block-size 16 --network-backend 'htsim' \
+#     --dataset 'workloads/example_trace.jsonl' --output 'outputs/example_htsim_run.csv' \
+#     --num-reqs 10
+
+# -----------------------------------------------------------------------------------------------
+
 # NS-3 network backend. Work in progress: needs the ns-3 submodule built, and
 # the placeholder below may not run until that integration lands.
 # python -m serving --cluster-config 'configs/cluster/single_node_single_instance.json' \

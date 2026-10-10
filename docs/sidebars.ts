@@ -95,6 +95,7 @@ const sidebars: SidebarsConfig = {
         'simulator/trace-generation',
         'simulator/parallelism-mechanics',
         'simulator/moe-expert-routing',
+        'simulator/network-backends',
         {
           type: 'category',
           label: 'Specialized',

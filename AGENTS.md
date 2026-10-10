@@ -2140,6 +2140,44 @@ Letting a new build take that poll instead is what hung `dp>1 x pp>1`: the NPU r
 *second* microbatch's graph as its first iteration, `add_done` credited it to the first
 by `id - 1`, and the other pipeline stage waited forever on a RECV that never came.
 
+### HTSim network backend
+`--network-backend htsim` runs `astra-sim/build/astra_htsim/build/bin/AstraSim_HTSim`
+(`astra-sim/network_frontend/htsim/`), built by `./scripts/compile.sh --htsim`.
+It reads the same `network.yml` as analytical and simulates those links packet
+by packet; the public description is
+`docs/docs/simulator/network-backends.md`. Contracts that are easy to break:
+
+- **The loop is the analytical frontend's.** `HTSimMain.cc` copies the
+  handshake, idle-NPU suppression and backstop from
+  `congestion_unaware/main.cc`; change both together. One step runs every
+  HTSim event at the next timestamp; an empty event list advances 1 ms.
+- **Nothing periodic may stay scheduled while no message is in flight.** The
+  frontend treats a non-empty event list as work and jumps to it instead of
+  advancing idle quanta, so a stale timer delays request arrivals. The TCP
+  retransmission scanner is cancelled when its last flow finishes, and a
+  finished flow's pending retransmission is cancelled. A 10 ms scanner left
+  armed moved `agentic_moe_dp_ep` by +15.6%.
+- **stdout is the protocol, and nobody reads stderr.** HTSim's
+  `std::cout`/`std::cerr` are redirected to `--htsim-log` or discarded;
+  ASTRA-Sim's reports go through spdlog's stdout `FILE*`. A pipe that fills
+  blocks the backend.
+- **Serialization is per packet, rounded to the picosecond** (`LinkQueue`).
+  Upstream's integer ps/byte is ~3.5% fast above 100 GiB/s and zero above
+  ~931 GiB/s.
+- **A finished flow is freed only when nothing can reach it.** Queues and
+  pipes dereference a packet's `PacketFlow`, which lives inside `TcpSrc`.
+  Link entry/exit counters (FIFO) tell when every packet that entered before
+  completion has left; the patched `TcpSrc` ignores ACKs and timers after its
+  last acknowledgement, so no new packet appears. Waiting for links to go idle
+  instead retained ~45% of 2.1M flows on a busy run.
+- **`htsim_astrasim.patch` is the only change to `csg-htsim`.** Generate it
+  with `git diff` in the submodule (its sources are CRLF; preserve that), and
+  `build.sh` refuses a tree carrying anything else.
+- **Consistency check:** with `{"transport": "raw"}`, or TCP with a huge
+  `initial_cwnd_packets`, every `serving/validate.sh` scenario should land
+  within a fraction of a percent of its analytical baseline. A larger gap
+  means the two backends no longer describe the same links or loop.
+
 ### Chakra graph converter
 The Chakra converter (`astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py`)
 transforms text traces into protobuf `.et` files. It creates:

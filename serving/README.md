@@ -55,7 +55,7 @@ from one list is visible against the other.
 | **speculative decoding** | `--num-speculative-tokens`, `--spec-acceptance-rate`, `--spec-acceptance-policy` |
 | **offloading** | `--enable-attn-offloading`, `--enable-sub-batch-interleaving`, `--enable-local-offloading` |
 | **trace / graph** | `--enable-block-copy`; run-wide: `--save-trace-text`, `--keep-inputs` |
-| **backend** *(run-wide)* | `--network-backend` |
+| **backend** *(run-wide)* | `--network-backend` (`analytical`, `htsim`, `ns3`) |
 | **output** *(run-wide)* | `--output`, `--run-id`, `--inputs-root`, `--log-interval`, `--log-level` |
 
 The reversible switches also accept `--no-enable-block-copy`,
@@ -63,6 +63,11 @@ The reversible switches also accept `--no-enable-block-copy`,
 `--no-reserve-full-isl`, `--no-async-scheduling`, `--no-save-trace-text` and
 `--no-keep-inputs`. Other switches such as offloading use `store_true` and
 have no automatic negative form; consult `--help`.
+
+`--network-backend htsim` simulates the same links packet by packet, either
+as TCP or at full bandwidth without congestion control (cluster config
+`htsim.transport`). Build it with `./scripts/compile.sh --htsim`; see
+[network backends](https://llmservingsim.ai/docs/simulator/network-backends).
 
 The optional cluster-level `collective_links` map selects bandwidth and latency
 for individual analytical Ring operations. Missing operations and fields use

@@ -606,8 +606,9 @@ def main():
                         help='interval in seconds between throughput/memory usage log messages')
     parser.add_argument('--log-level', type=str, choices=['WARNING', 'INFO', 'DEBUG'], default='WARNING',
                         help='logging verbosity: WARNING (minimal), INFO (per-iteration details), DEBUG (per-layer memory)')
-    parser.add_argument('--network-backend', type=str, choices=['analytical', 'ns3'], default='analytical',
-                        help='network simulation backend: analytical (fast, default) or ns3 (detailed, WIP)')
+    parser.add_argument('--network-backend', type=str, choices=['analytical', 'htsim', 'ns3'], default='analytical',
+                        help='network simulation backend: analytical (fast, default), htsim (packet-level TCP, '
+                        'congestion-aware; build with scripts/compile.sh --htsim) or ns3 (detailed, WIP)')
 
     args = parser.parse_args()
     
@@ -652,6 +653,9 @@ def main():
         inputs_root=run_paths.inputs_root)
     if cluster.get("collective_links") and network_backend != 'analytical':
         raise ValueError("collective_links requires the congestion-unaware analytical backend")
+    if raw_cluster_config.get("htsim") is not None and network_backend != 'htsim':
+        logger.warning("Ignoring the cluster config's 'htsim' settings: --network-backend is %s",
+                       network_backend)
     num_nodes = cluster["num_nodes"]
     num_instances = cluster["num_instances"]
     instances = cluster["instances"]
@@ -677,11 +681,19 @@ def main():
     if network_backend == 'analytical':
         network=run_paths.network_config
         binary=os.path.join(astra_sim, "build/astra_analytical/build/AnalyticalAstra/bin/AnalyticalAstra")
+    elif network_backend == 'htsim':
+        # Same network config as analytical: HTSim simulates those links packet by packet.
+        network=run_paths.network_config
+        binary=os.path.join(astra_sim, "build/astra_htsim/build/bin/AstraSim_HTSim")
+        if not os.path.isfile(binary):
+            raise FileNotFoundError(
+                f"HTSim backend not built: {binary} is missing. Run './scripts/compile.sh --htsim' "
+                "inside the simulator container.")
     elif network_backend == 'ns3':
         network=_prepare_ns3_config(astra_sim, run_paths)
         binary=os.path.join(astra_sim, "extern/network_backend/ns-3/build/scratch/ns3.42-AstraSimNetwork-default")
     else:
-        raise NotImplementedError("Only analytical and ns3 network backend are supported")
+        raise NotImplementedError("Only analytical, htsim and ns3 network backends are supported")
     memory=run_paths.memory_config
     system=run_paths.system_config
     # ------------------------------------- Prepare simulation -------------------------------------
@@ -874,6 +886,12 @@ def main():
         astra_args.append("--start-npu-ids="+start_npu_ids)
     if end_npu_ids != "":
         astra_args.append("--end-npu-ids="+end_npu_ids)
+    if network_backend == 'htsim':
+        # HTSim's console output is only worth keeping alongside kept inputs.
+        htsim_log = None
+        if args.keep_inputs or args.save_trace_text:
+            htsim_log = os.path.join(run_paths.inputs_root, "htsim.log")
+        astra_args.extend(htsim_binary_args(cluster["htsim"], htsim_log))
     if network_backend == 'ns3':
         astra_args.append("--logical-topology-configuration="+astra_sim+"/inputs/logical_topology/logical_8nodes_1D.json")
     p = subprocess.Popen(astra_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)

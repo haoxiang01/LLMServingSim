@@ -39,6 +39,7 @@ describe an interconnect you do not have.
 | `link_bw` | float or float[] | — | *inherited* | ASTRA-Sim topology link bandwidth in **GiB/s** (binary). Scalars apply to every topology dimension; arrays must match the final `network.yml::npus_count` rank. Omit it and the measured value from `profiler/perf/<hw>/hardware.yaml` is used — see [Hardware facts are inherited](#hardware-facts-are-inherited) |
 | `link_latency` | float or float[] | — | *inherited* | ASTRA-Sim topology link latency in **ns**. Scalars apply to every topology dimension; arrays must match the final `network.yml::npus_count` rank. Omit it and the measured value is used |
 | `collective_links` | object | — | *optional inheritance* | Per-operation analytical Ring link settings; see [Collective-specific links](#collective-specific-links). `{}` keeps the common link for every operation |
+| `htsim` | object | — | absent | Transport settings of the packet-level backend (`--network-backend htsim`); see [HTSim settings](#htsim-settings). Ignored, with a warning, by other backends |
 | `nodes` | array | ✓ |  | Length must equal `num_nodes` |
 | `cxl_mem` | object | optional | absent | CXL memory expansion (see below) |
 
@@ -102,6 +103,32 @@ hardware profiler's [calibration contract](../profiler/adding-hardware#calibrati
 and retained residuals bound how its effective curves should be interpreted.
 
 :::
+
+### HTSim settings
+
+Used only with `--network-backend htsim`, which simulates the links described
+by `link_bw` and `link_latency` packet by packet; see
+[Network backends](../simulator/network-backends#htsim). Every field is
+optional.
+
+```json
+{
+  "htsim": {"transport": "raw"}
+}
+```
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `transport` | string | `"tcp"` | `"tcp"`: one TCP flow per message. `"raw"`: packets at the link's full bandwidth, without congestion control or acknowledgements |
+| `queue_bytes` | int | `0` | Output buffer of every link in bytes. `0` is unbounded (lossless); a finite buffer drops packets when full. `"raw"` requires `0` |
+| `mtu` | int | `1500` | Packet size in bytes, headers included; must exceed 40. A message occupies whole packets |
+| `initial_cwnd_packets` | int | `10` | TCP only. Congestion window at the start of every message |
+| `min_rto_us` | number | `250000` | TCP only. Lower bound of the retransmission timeout, µs |
+| `initial_rto_us` | number | `3000000` | TCP only. Retransmission timeout before a flow's first RTT sample, µs |
+| `tcp_handshake` | bool | `false` | TCP only. Open every message with a SYN round trip |
+
+Setting a TCP-only field with `"transport": "raw"` is an error, as are unknown
+fields and out-of-range values.
 
 ## Hardware facts are inherited
 

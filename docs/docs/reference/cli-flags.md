@@ -22,7 +22,7 @@ heterogeneous instances. Flags without that marker remain run-wide. See
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--cluster-config` | path | `configs/cluster/single_node_single_instance.json` | Path to a cluster-config JSON. See **[Cluster config](./cluster-config)** |
-| `--network-backend` | choice | `analytical` | Network simulation backend. `analytical` (fast) or `ns3` (detailed, WIP) |
+| `--network-backend` | choice | `analytical` | Network simulation backend: `analytical` (fast), `htsim` (packet-level; build with `./scripts/compile.sh --htsim`) or `ns3` (WIP). See **[Network backends](../simulator/network-backends)** |
 
 ## Batching and scheduling
 
@@ -156,6 +156,7 @@ removed after a successful simulation by default.
 | Chunked prefill | `--enable-chunked-prefill` (default on), `--long-prefill-token-threshold` |
 | PIM attention offload | `--enable-attn-offloading` (cluster config sets `pim_config`) |
 | FP8 KV cache | (model config `quantization_config.kv_cache_scheme`) |
+| Packet-level network | `--network-backend htsim` (cluster config `htsim` sets the transport) |
 | ns3 backend | `--network-backend ns3` |
 | Heterogeneous instances in one run | (cluster config per-instance overrides; see the tip above) |
 

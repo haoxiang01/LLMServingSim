@@ -100,6 +100,14 @@ ls -l astra-sim/build/astra_analytical/build/AnalyticalAstra/bin/AnalyticalAstra
 That is the exact path `serving/__main__.py` launches as a subprocess,
 so if it exists and is executable, the build worked.
 
+:::tip[HTSim backend]
+`./scripts/compile.sh --htsim` also builds the packet-level HTSim backend
+used by `--network-backend htsim`:
+`astra-sim/build/astra_htsim/build/bin/AstraSim_HTSim`. The build patches the
+`csg-htsim` submodule's working tree, which then shows as modified. See
+[Network backends](/docs/simulator/network-backends).
+:::
+
 :::tip[ns3 backend]
 `compile.sh` has a commented-out block for the ns3 backend
 (packet-level network simulation). Most users don't need it. Uncomment

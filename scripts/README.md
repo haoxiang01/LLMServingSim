@@ -11,7 +11,7 @@ live with their module.
 | `docker-vllm.sh`  | Launch the vLLM Docker container (profiler + bench + workloads.generators). Mounts the repo as `/workspace`, pins vLLM 0.28.0, installs `datasets`, `matplotlib`, `pandas` and the pinned NCCL dependency, and applies `scripts/patches/`. |
 | `docker-sim.sh`   | Launch the simulator Docker container (ASTRA-Sim + sim Python deps). |
 | `install-vllm.sh` | Bare-metal vLLM install via `uv venv` for environments without Docker. Brings in vLLM 0.28.0 plus `datasets`, `matplotlib` and `pandas`; source patches must be applied separately in the activated environment. |
-| `compile.sh`      | Build ASTRA-Sim's analytical backend and install the Chakra trace converter. Rerun it after any change under `astra-sim/`, including `llm_converter.py`, which is installed into site-packages rather than imported from the tree. |
+| `compile.sh`      | Build ASTRA-Sim's analytical backend and install the Chakra trace converter; `--htsim` also builds the packet-level HTSim backend. Rerun it after any change under `astra-sim/`, including `llm_converter.py`, which is installed into site-packages rather than imported from the tree. |
 | `monitor_run.py` | Run one command with process-tree RSS, host-memory, swap-growth and timeout guards; write CSV telemetry and a JSON completion summary. Optional GPU telemetry targets one explicit physical UUID. |
 
 ## Typical first-time setup
